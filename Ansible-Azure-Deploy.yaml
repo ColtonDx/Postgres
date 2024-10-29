@@ -1,0 +1,331 @@
+- name: Create Azure VM
+  hosts: localhost
+  connection: local
+
+  vars:
+    username: "dxadmin"
+    password: "SecurePassword123"
+    resource_group: Postgres-Deploy
+
+  tasks:
+
+  - name: Create resource group
+    azure_rm_resourcegroup:
+      name: "{{ resource_group}}"
+      location: westus2
+      state: present
+
+  - name: Create virtual network
+    azure_rm_virtualnetwork:
+      resource_group: "{{ resource_group}}"
+      name: "{{ resource_group }}-VNET"
+      location: westus2
+      address_prefixes: "10.0.0.0/16"
+      state: present
+
+#  - name: Create the load balancer
+#    azure_rm_loadbalancer:
+#      resource_group: "{{ resource_group }}"
+#      name: "{{ resource_group }}-lb"
+#      frontend_ip_configurations:
+#        - name: "LoadBalancerFrontEnd"
+#          private_ip_allocation_method: Static
+#          private_ip_address: "10.0.0.20"
+#          subnet: "{{ resource_group }}-Subnet"
+
+#  - name: Create the backend pool
+#    azure_rm_loadbalancer_backendpool_address:
+#      resource_group: "{{ resource_group }}"
+#      load_balancer: "{{ resource_group }}-lb"
+#      name: "backendpool1"
+#      backend_ip_configurations:
+#        - ip_address: "10.0.0.21"
+#          name: "backend1"
+#        - ip_address: "10.0.0.22"
+#          name: "backend2"
+
+#  - name: Create a load balancing rule
+#    azure_rm_loadbalancer_rule:
+#      resource_group: "{{ resource_group }}"
+#      load_balancer: "{{ resource_group }}-lb"
+#      name: "LoadBalancingRule1"
+#      protocol: Tcp
+#      frontend_port: 5432
+#      backend_port: 5432
+#      enable_floating_ip: false
+#      idle_timeout_in_minutes: 4
+#      frontend_ip_configuration: "LoadBalancerFrontEnd"
+#      backend_pool: "backendpool1"
+
+  - name: Create network security group
+    azure_rm_securitygroup:
+      name: "{{ resource_group }}-NSG"
+      resource_group: "{{ resource_group }}"
+      rules:
+          - name: inbound_ssh
+            access: Allow
+            description: Inbound SSH access to port 22.
+            destination_address_prefix: VirtualNetwork
+            destination_port_range: 22
+            direction: Inbound
+            priority: 100
+            protocol: Tcp
+            source_address_prefix: 104.128.8.121
+            source_port_range: "*"
+          - name: CASG-Rule-104
+            access: Deny
+            description: CSS Governance Security Rule. Deny risky inbound.
+            destination_address_prefix: "*"
+            destination_port_range: "*"
+            direction: Inbound
+            priority: 204
+            protocol: "*"
+            source_address_prefix: Internet
+            source_port_range: "*"
+          - name: CASG-Rule-103
+            access: Allow
+            description: CSS Governance Security Rule. Allow SAW inbound.
+            destination_address_prefix: "*"
+            destination_port_range: "*"
+            direction: Inbound
+            priority: 103
+            protocol: "*"
+            source_address_prefix: CorpNetSaw
+            source_port_range: "*"
+          - name: CASG-Rule-101
+            access: Allow
+            description: CSS Governance Security Rule. Allow vnet inbound.
+            destination_address_prefix: "*"
+            destination_port_range: "*"
+            direction: Inbound
+            priority: 101
+            protocol: "*"
+            source_address_prefix: VirtualNetwork
+            source_port_range: "*"
+          - name: CASG-Rule-102
+            access: Allow
+            description: CSS Governance Security Rule. Allow Corpnet inbound.
+            destination_address_prefix: "*"
+            destination_port_range: "*"
+            direction: Inbound
+            priority: 102
+            protocol: "*"
+            source_address_prefix: CorpNetPublic
+            source_port_range: "*"
+          - name: inbound_web_http
+            access: Allow
+            description: Inbound HTTP from home.
+            destination_address_prefix: VirtualNetwork
+            destination_port_range: 80
+            direction: Inbound
+            priority: 104
+            protocol: Tcp
+            source_address_prefix: 104.128.8.121
+            source_port_range: "*"
+          - name: inbound_web_https
+            access: Allow
+            description: Inbound HTTPS from home.
+            destination_address_prefix: VirtualNetwork
+            destination_port_range: 5000
+            direction: Inbound
+            priority: 105
+            protocol: Tcp
+            source_address_prefix: 104.128.8.121
+            source_port_range: "*"
+
+  - name: Add subnet
+    azure_rm_subnet:
+      resource_group: "{{ resource_group}}"
+      name: "{{ resource_group}}-Subnet"
+      address_prefix: "10.0.0.0/24"
+      virtual_network: "{{ resource_group }}-VNET"
+      security_group_name: "{{ resource_group }}-NSG"
+      state: present
+
+  - name: Create public IP address
+    azure_rm_publicipaddress:
+      resource_group: "{{ resource_group}}"
+      allocation_method: Static
+      name: Postgres1-IP
+
+  - name: Create public IP address
+    azure_rm_publicipaddress:
+      resource_group: "{{ resource_group}}"
+      allocation_method: Static
+      name: Postgres2-IP
+
+  - name: Create public IP address
+    azure_rm_publicipaddress:
+      resource_group: "{{ resource_group}}"
+      allocation_method: Static
+      name: WebVM-IP
+
+  - name: Create public IP address
+    azure_rm_publicipaddress:
+      resource_group: "{{ resource_group}}"
+      allocation_method: Static
+      name: AppController-IP
+
+  - name: Create virtual network interface card
+    azure_rm_networkinterface:
+      resource_group: "{{ resource_group}}"
+      name: Web-NIC
+      virtual_network: "{{ resource_group }}-VNET"
+      subnet: "{{ resource_group}}-Subnet"
+      security_group: "{{ resource_group }}-NSG"
+      ip_configurations:
+        - name: ipconfig1
+          private_ip_address: 10.0.0.10
+          private_ip_allocation_method: Static
+          public_ip_address_name: WebVM-IP
+      state: present
+
+  - name: Create virtual network interface card
+    azure_rm_networkinterface:
+      resource_group: "{{ resource_group}}"
+      name: DB1-NIC
+      virtual_network: "{{ resource_group }}-VNET"
+      subnet: "{{ resource_group}}-Subnet"
+      security_group: "{{ resource_group }}-NSG"
+      ip_configurations:
+        - name: ipconfig1
+          private_ip_address: 10.0.0.21
+          private_ip_allocation_method: Static
+          public_ip_address_name: Postgres1-IP
+      state: present
+
+  - name: Create virtual network interface card
+    azure_rm_networkinterface:
+      resource_group: "{{ resource_group}}"
+      name: DB2-NIC
+      virtual_network: "{{ resource_group }}-VNET"
+      subnet: "{{ resource_group}}-Subnet"
+      security_group: "{{ resource_group }}-NSG"
+      ip_configurations:
+        - name: ipconfig1
+          private_ip_address: 10.0.0.22
+          private_ip_allocation_method: Static
+          public_ip_address_name: Postgres2-IP
+      state: present
+
+  - name: Create virtual network interface card
+    azure_rm_networkinterface:
+      resource_group: "{{ resource_group}}"
+      name: APP-NIC
+      virtual_network: "{{ resource_group }}-VNET"
+      subnet: "{{ resource_group}}-Subnet"
+      security_group: "{{ resource_group }}-NSG"
+      ip_configurations:
+        - name: ipconfig1
+          private_ip_address: 10.0.0.12
+          private_ip_allocation_method: Static
+          public_ip_address_name: AppController-IP
+      state: present
+
+  - name: Create Web VM
+    azure_rm_virtualmachine:
+      resource_group: "{{ resource_group}}"
+      name: WebVM
+      vm_size: Standard_DS1_v2
+      admin_username: "{{ username }}"
+      admin_password: "{{ password }}"
+      os_disk_name: WebVM-Disk
+      managed_disk_type: Standard_LRS
+      ssh_public_keys:
+        - path: /home/dxadmin/.ssh/authorized_keys
+          key_data: ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQDfZCb5l8LvkIxdY4rCiHUbrvy+cyV9/Y+wHHb9WLLgoKqC14cVVEfNaKcA1nmIPp23uWHCVGQBJtcRErnHof6HuB0CsbNhYYy14uO8gOwELFArlnvQ2Ai95iisRA6BaHSdpe/6IEKHgUn3GbwBDFEE4vixdLRVSyL2iTFYixnHc554wMpX1V8Re+EHAxmMAOtGPMnDtaGQNG1PMT4XXLdjUsvZLuR1H+htKqu81+OrJgHYS3Auu+Nu2xksS8UPGqp2UK2fvKpYNn7V4441v3bqVNq5I+/+qCcTiJPg4saWJ7WZujllcLTUVNmjMuhwkPzPBDPe7ZjhCqpiBWacCvIb3p2AQk1EJrKJC13gCb7z+lhtP2B8pA1f85woKlQIdmJwzxLv5MU37d5E4AzYRmtLdidSUT6noc3r8qFN5yCei9XFSvn5cfwXri4r1OrjANSiJ2aYq2zNCR9cVNpIc3YFMuuErhG1Ir7Z1me0gaef9qRAim9xo+Da+GpjxBPMwloIhnRDI17k/k2gseU/PVipNuBfmJ7VSqI3vAj3KZ1YPKfpG4BYFZBDZs6twseG7nkuktpbnKwAmVOBQ2dJm/FybKEA71A/bNi1pyaggMcP7zSsbfk6n+IQimv7YJVLvcb8WWXNaa7W7NF+esv0qhtyniwOTG66SSObXosgnnidKQ== dxadmin@WorkPC
+      network_interfaces: Web-NIC
+      image:
+        offer: 0001-com-ubuntu-server-jammy
+        publisher: Canonical
+        sku: 22_04-lts
+        version: latest
+      boot_diagnostics:
+        enabled: true
+        type: managed
+
+  - name: Create DB1 VM
+    azure_rm_virtualmachine:
+      resource_group: "{{ resource_group}}"
+      name: Postgres1
+      vm_size: Standard_DS1_v2
+      admin_username: "{{ username }}"
+      admin_password: "{{ password }}"
+      os_disk_name: Postgres1-Disk
+      managed_disk_type: Standard_LRS
+      ssh_public_keys:
+        - path: /home/dxadmin/.ssh/authorized_keys
+          key_data: ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQDfZCb5l8LvkIxdY4rCiHUbrvy+cyV9/Y+wHHb9WLLgoKqC14cVVEfNaKcA1nmIPp23uWHCVGQBJtcRErnHof6HuB0CsbNhYYy14uO8gOwELFArlnvQ2Ai95iisRA6BaHSdpe/6IEKHgUn3GbwBDFEE4vixdLRVSyL2iTFYixnHc554wMpX1V8Re+EHAxmMAOtGPMnDtaGQNG1PMT4XXLdjUsvZLuR1H+htKqu81+OrJgHYS3Auu+Nu2xksS8UPGqp2UK2fvKpYNn7V4441v3bqVNq5I+/+qCcTiJPg4saWJ7WZujllcLTUVNmjMuhwkPzPBDPe7ZjhCqpiBWacCvIb3p2AQk1EJrKJC13gCb7z+lhtP2B8pA1f85woKlQIdmJwzxLv5MU37d5E4AzYRmtLdidSUT6noc3r8qFN5yCei9XFSvn5cfwXri4r1OrjANSiJ2aYq2zNCR9cVNpIc3YFMuuErhG1Ir7Z1me0gaef9qRAim9xo+Da+GpjxBPMwloIhnRDI17k/k2gseU/PVipNuBfmJ7VSqI3vAj3KZ1YPKfpG4BYFZBDZs6twseG7nkuktpbnKwAmVOBQ2dJm/FybKEA71A/bNi1pyaggMcP7zSsbfk6n+IQimv7YJVLvcb8WWXNaa7W7NF+esv0qhtyniwOTG66SSObXosgnnidKQ== dxadmin@WorkPC
+      network_interfaces: DB1-NIC
+      image:
+        offer: 0001-com-ubuntu-server-jammy
+        publisher: Canonical
+        sku: 22_04-lts
+        version: latest
+      boot_diagnostics:
+        enabled: true
+        type: managed
+
+  - name: Create DB2 VM
+    azure_rm_virtualmachine:
+      resource_group: "{{ resource_group}}"
+      name: Postgres-2
+      vm_size: Standard_DS1_v2
+      admin_username: "{{ username }}"
+      admin_password: "{{ password }}"
+      os_disk_name: Postgres2-Disk
+      managed_disk_type: Standard_LRS
+      ssh_public_keys:
+        - path: /home/dxadmin/.ssh/authorized_keys
+          key_data: ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQDfZCb5l8LvkIxdY4rCiHUbrvy+cyV9/Y+wHHb9WLLgoKqC14cVVEfNaKcA1nmIPp23uWHCVGQBJtcRErnHof6HuB0CsbNhYYy14uO8gOwELFArlnvQ2Ai95iisRA6BaHSdpe/6IEKHgUn3GbwBDFEE4vixdLRVSyL2iTFYixnHc554wMpX1V8Re+EHAxmMAOtGPMnDtaGQNG1PMT4XXLdjUsvZLuR1H+htKqu81+OrJgHYS3Auu+Nu2xksS8UPGqp2UK2fvKpYNn7V4441v3bqVNq5I+/+qCcTiJPg4saWJ7WZujllcLTUVNmjMuhwkPzPBDPe7ZjhCqpiBWacCvIb3p2AQk1EJrKJC13gCb7z+lhtP2B8pA1f85woKlQIdmJwzxLv5MU37d5E4AzYRmtLdidSUT6noc3r8qFN5yCei9XFSvn5cfwXri4r1OrjANSiJ2aYq2zNCR9cVNpIc3YFMuuErhG1Ir7Z1me0gaef9qRAim9xo+Da+GpjxBPMwloIhnRDI17k/k2gseU/PVipNuBfmJ7VSqI3vAj3KZ1YPKfpG4BYFZBDZs6twseG7nkuktpbnKwAmVOBQ2dJm/FybKEA71A/bNi1pyaggMcP7zSsbfk6n+IQimv7YJVLvcb8WWXNaa7W7NF+esv0qhtyniwOTG66SSObXosgnnidKQ== dxadmin@WorkPC
+      network_interfaces: DB2-NIC
+      image:
+        offer: 0001-com-ubuntu-server-jammy
+        publisher: Canonical
+        sku: 22_04-lts
+        version: latest
+      boot_diagnostics:
+        enabled: true
+        type: managed
+
+  - name: Create AppController VM
+    azure_rm_virtualmachine:
+      resource_group: "{{ resource_group}}"
+      name: ApplicationCtonroller
+      vm_size: Standard_DS1_v2
+      admin_username: "{{ username }}"
+      admin_password: "{{ password }}"
+      os_disk_name: AppController-Disk
+      managed_disk_type: Standard_LRS
+      ssh_public_keys:
+        - path: /home/dxadmin/.ssh/authorized_keys
+          key_data: ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQDfZCb5l8LvkIxdY4rCiHUbrvy+cyV9/Y+wHHb9WLLgoKqC14cVVEfNaKcA1nmIPp23uWHCVGQBJtcRErnHof6HuB0CsbNhYYy14uO8gOwELFArlnvQ2Ai95iisRA6BaHSdpe/6IEKHgUn3GbwBDFEE4vixdLRVSyL2iTFYixnHc554wMpX1V8Re+EHAxmMAOtGPMnDtaGQNG1PMT4XXLdjUsvZLuR1H+htKqu81+OrJgHYS3Auu+Nu2xksS8UPGqp2UK2fvKpYNn7V4441v3bqVNq5I+/+qCcTiJPg4saWJ7WZujllcLTUVNmjMuhwkPzPBDPe7ZjhCqpiBWacCvIb3p2AQk1EJrKJC13gCb7z+lhtP2B8pA1f85woKlQIdmJwzxLv5MU37d5E4AzYRmtLdidSUT6noc3r8qFN5yCei9XFSvn5cfwXri4r1OrjANSiJ2aYq2zNCR9cVNpIc3YFMuuErhG1Ir7Z1me0gaef9qRAim9xo+Da+GpjxBPMwloIhnRDI17k/k2gseU/PVipNuBfmJ7VSqI3vAj3KZ1YPKfpG4BYFZBDZs6twseG7nkuktpbnKwAmVOBQ2dJm/FybKEA71A/bNi1pyaggMcP7zSsbfk6n+IQimv7YJVLvcb8WWXNaa7W7NF+esv0qhtyniwOTG66SSObXosgnnidKQ== dxadmin@WorkPC
+      network_interfaces: APP-NIC
+      image:
+        offer: 0001-com-ubuntu-server-jammy
+        publisher: Canonical
+        sku: 22_04-lts
+        version: latest
+      boot_diagnostics:
+        enabled: true
+        type: managed
+
+  - name: Create private DNS zone
+    azure_rm_dnszone:
+      resource_group: "{{ resource_group }}"
+      name: "database.contoso.com"
+      zone_type: "Private"
+      registration_virtual_networks:
+        - "{{ resource_group }}-VNET"
+      resolution_virtual_networks:
+        - "{{ resource_group }}-VNET"
+
+#  - name: Create DNS A record
+#    azure_rm_dnsrecordset:
+#      resource_group: "{{ resource_group }}"
+#      zone_name: "database.contoso.com"
+#      name: "*"
+#      record_type: "A"
+#      ttl: 3600
+#      arecords:
+#        - ipv4address: "10.0.0.12"

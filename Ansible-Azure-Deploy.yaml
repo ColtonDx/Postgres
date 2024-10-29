@@ -291,7 +291,7 @@
   - name: Create AppController VM
     azure_rm_virtualmachine:
       resource_group: "{{ resource_group}}"
-      name: ApplicationCtonroller
+      name: ApplicationController
       vm_size: Standard_DS1_v2
       admin_username: "{{ username }}"
       admin_password: "{{ password }}"
